@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<launch4jConfig>
+  <dontWrapJar>false</dontWrapJar>
+  <headerType>gui</headerType>
+  <jar>E:\Code\everstatus\target\activetrack-1.0.0.jar</jar>
+  <outfile>E:\Code\everstatus\executable\EverStatus.exe</outfile>
+  <errTitle></errTitle>
+  <cmdLine></cmdLine>
+  <chdir>.</chdir>
+  <priority>normal</priority>
+  <downloadUrl></downloadUrl>
+  <supportUrl></supportUrl>
+  <stayAlive>false</stayAlive>
+  <restartOnCrash>false</restartOnCrash>
+  <manifest></manifest>
+  <icon>E:\Code\everstatus\ES.ico</icon>
+  <jre>
+    <path>%JAVA_HOME%;%PATH%</path>
+    <requiresJdk>false</requiresJdk>
+    <requires64Bit>false</requires64Bit>
+    <minVersion>17</minVersion>
+    <maxVersion></maxVersion>
+    <opt>-Denv.-djava.awt.headless=false=&quot;%-Djava.awt.headless=false%&quot;</opt>
+  </jre>
+  <messages>
+    <startupErr>An error occurred while starting the application.</startupErr>
+    <jreNotFoundErr>This application requires a Java 17 Runtime Environment.</jreNotFoundErr>
+    <jreVersionErr>This application requires a Java 17 Runtime Environment</jreVersionErr>
+    <launcherErr>The registry refers to a nonexistent Java 17 Runtime Environment installation or the runtime is corrupted.</launcherErr>
+    <instanceAlreadyExistsMsg>An application instance is already running.</instanceAlreadyExistsMsg>
+  </messages>
+</launch4jConfig>

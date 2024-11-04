@@ -1,0 +1,12 @@
+
+  .   ____          _            __ _ _
+ /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
+( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
+ \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
+  '  |____| .__|_| |_|_| |_\__, | / / / /
+ =========|_|==============|___/=/_/_/_/
+ :: Spring Boot ::                (v3.0.0)
+
+2024-11-03T20:04:27.540-05:00  INFO 30968 --- [           main] com.automations.everstatus.Application   : Starting Application v1.0.0 using Java 17.0.12 with PID 30968 (E:\Code\everstatus\target\activetrack-1.0.0.jar started by my in E:\Code\everstatus)
+2024-11-03T20:04:27.544-05:00  INFO 30968 --- [           main] com.automations.everstatus.Application   : No active profile set, falling back to 1 default profile: "default"
+2024-11-03T20:04:28.156-05:00  INFO 30968 --- [           main] com.automations.everstatus.Application   : Started Application in 1.048 seconds (process running for 1.591)

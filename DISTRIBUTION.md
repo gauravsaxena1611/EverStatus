@@ -1,220 +1,159 @@
-# EverStatus Distribution Guide
+# EverStatus – Packaging & Distribution Guide
 
-This guide explains how to package and distribute EverStatus for Windows and macOS systems.
+This guide explains how to build standalone, portable packages for Windows and macOS.
+The output is a self-contained app – **users do not need Java installed**.
 
-## Prerequisites
+> **Size note:** Bundling a JRE adds ~100–150 MB to the package. This is unavoidable for
+> a Java app that requires no pre-installed runtime.
 
-- Java 17 or higher installed on the build machine
-- Maven (or use the included Maven wrapper `mvnw`)
+---
 
-## Building for Distribution
+## Prerequisites (build machine only)
 
-### Option 1: Build on the Target Platform (Recommended)
+- JDK 17 or higher (must include `jpackage` – standard in JDK 14+)
+- Maven (or use the included `mvnw` wrapper)
+- Build on the **target platform**: build on Windows to produce the Windows package,
+  build on macOS to produce the Mac package
 
-For best compatibility, build the JAR on each target platform:
+---
 
-#### On Windows:
-```bash
-.\mvnw.cmd clean package
+## Windows – Step-by-Step
+
+### 1. Install JDK 17+ on your Windows build machine
+
+Download from https://adoptium.net/ and ensure `jpackage` is in your PATH:
+```
+jpackage --version
 ```
 
-#### On macOS/Linux:
-```bash
-./mvnw clean package
+### 2. Build the portable package
+
+Run the build script from the project root:
+```
+build-distribution.bat
 ```
 
-This will create `target/activetrack-1.0.0.jar` with the correct SWT library for your platform.
+This will:
+- Compile and package the JAR (`mvnw clean package`)
+- Bundle a JRE using `jpackage --type app-image`
+- Zip the result to `dist\EverStatus-Windows-1.0.0.zip`
 
-### Option 2: Build All Platforms (Advanced)
+### 3. Distribute
 
-To build JARs for all platforms from a single machine, you'll need to manually activate profiles:
+Share `dist\EverStatus-Windows-1.0.0.zip` with users.
 
-#### For Windows build:
-```bash
-./mvnw clean package -P windows
-```
+**User instructions (include in your release notes):**
+1. Extract the ZIP anywhere (Desktop, USB drive, etc.)
+2. Open the `EverStatus` folder
+3. Double-click `EverStatus.exe`
+4. No Java installation required
 
-#### For macOS Intel (x86_64):
-```bash
-./mvnw clean package -P macos-x86_64
-```
+---
 
-#### For macOS Apple Silicon (ARM64):
-```bash
-./mvnw clean package -P macos-aarch64
-```
+## macOS – Step-by-Step
 
-#### For Linux:
-```bash
-./mvnw clean package -P linux
-```
-
-## Distribution Package Structure
-
-Create a distribution folder with the following structure:
-
-```
-EverStatus-1.0.0/
-├── activetrack-1.0.0.jar       (The executable JAR)
-├── runEverStatus.bat            (Windows launcher)
-├── runEverStatus.sh             (macOS/Linux launcher)
-├── ES.ico                       (Application icon - Windows)
-├── ES.png                       (Application icon - macOS)
-└── README.md                    (User instructions)
-```
-
-## Steps to Create Distribution Packages
-
-### For Windows Users:
-
-1. **Build the JAR** (on Windows machine):
-   ```bash
-   .\mvnw.cmd clean package
-   ```
-
-2. **Create distribution folder**:
-   ```bash
-   mkdir dist\EverStatus-Windows-1.0.0
-   copy target\activetrack-1.0.0.jar dist\EverStatus-Windows-1.0.0\
-   copy runEverStatus.bat dist\EverStatus-Windows-1.0.0\
-   copy ES.ico dist\EverStatus-Windows-1.0.0\
-   copy README.md dist\EverStatus-Windows-1.0.0\
-   ```
-
-3. **Create ZIP archive**:
-   ```bash
-   cd dist
-   tar -a -c -f EverStatus-Windows-1.0.0.zip EverStatus-Windows-1.0.0
-   ```
-
-4. **Distribute**: Share the `EverStatus-Windows-1.0.0.zip` file
-
-### For macOS Users:
-
-1. **Build the JAR** (on macOS machine):
-   ```bash
-   ./mvnw clean package
-   ```
-
-2. **Create distribution folder**:
-   ```bash
-   mkdir -p dist/EverStatus-macOS-1.0.0
-   cp target/activetrack-1.0.0.jar dist/EverStatus-macOS-1.0.0/
-   cp runEverStatus.sh dist/EverStatus-macOS-1.0.0/
-   cp ES.png dist/EverStatus-macOS-1.0.0/
-   cp README.md dist/EverStatus-macOS-1.0.0/
-   chmod +x dist/EverStatus-macOS-1.0.0/runEverStatus.sh
-   ```
-
-3. **Create ZIP archive**:
-   ```bash
-   cd dist
-   zip -r EverStatus-macOS-1.0.0.zip EverStatus-macOS-1.0.0
-   ```
-
-4. **Distribute**: Share the `EverStatus-macOS-1.0.0.zip` file
-
-## User Installation Instructions
-
-### Windows:
-1. Extract the ZIP file to any location
-2. Ensure Java 17+ is installed (download from https://adoptium.net/)
-3. Double-click `runEverStatus.bat` to launch the application
-4. Optionally, create a desktop shortcut to `runEverStatus.bat`
-
-### macOS:
-1. Extract the ZIP file to any location
-2. Ensure Java 17+ is installed:
-   ```bash
-   brew install openjdk@17
-   ```
-3. Open Terminal, navigate to the extracted folder, and run:
-   ```bash
-   chmod +x runEverStatus.sh
-   ./runEverStatus.sh
-   ```
-4. Alternatively, double-click `runEverStatus.sh` if your system allows script execution
-
-### Alternative: Direct JAR Execution
-On any platform with Java 17+ installed:
-```bash
-java -jar activetrack-1.0.0.jar
-```
-
-## Creating Native Installers (Optional)
-
-### Windows EXE (Using Launch4j)
-
-You already have a launch4j configuration. To create a Windows EXE:
-
-1. Install Launch4j from https://launch4j.sourceforge.net/
-2. Update `launch4j configuration.xml` with correct paths:
-   ```xml
-   <jar>target\activetrack-1.0.0.jar</jar>
-   <outfile>executable\EverStatus.exe</outfile>
-   <icon>ES.ico</icon>
-   ```
-3. Run Launch4j and load the configuration
-4. Click "Build wrapper" to generate `EverStatus.exe`
-
-### macOS App Bundle (Using jpackage)
-
-Create a native macOS app using jpackage (requires JDK 17+):
+### 1. Install JDK 17+ on your Mac build machine
 
 ```bash
-jpackage \
-  --input target \
-  --name EverStatus \
-  --main-jar activetrack-1.0.0.jar \
-  --main-class com.automations.everstatus.Application \
-  --type app-image \
-  --icon ES.png \
-  --app-version 1.0.0 \
-  --vendor "Your Company" \
-  --copyright "Copyright 2024" \
-  --mac-package-name "com.automations.everstatus"
+brew install openjdk@17
+export PATH="/opt/homebrew/opt/openjdk@17/bin:$PATH"
+jpackage --version
 ```
 
-This creates `EverStatus.app` that can be distributed.
+> **Apple Silicon vs Intel:** Run this on the Mac architecture you're targeting.
+> The bundle only runs on the same architecture it was built on. Build on M-series Mac
+> for Apple Silicon users; build on Intel Mac for Intel users.
+
+### 2. (Optional) Create a high-quality icon
+
+`jpackage` prefers an `.icns` icon on macOS. If you only have `ES.png`, the script
+will use it as a fallback. To convert:
+```bash
+# Using ImageMagick
+convert ES.png -resize 1024x1024 ES.icns
+# Or use the free app "Image2icon" from the Mac App Store
+```
+Place `ES.icns` in the project root.
+
+### 3. Build the portable package
+
+Run the build script from the project root:
+```bash
+chmod +x build-distribution.sh
+./build-distribution.sh
+```
+
+This will:
+- Compile and package the JAR
+- Bundle a JRE using `jpackage --type app-image`
+- Zip the result to `dist/EverStatus-macOS-1.0.0.zip`
+
+### 4. Distribute
+
+Share `dist/EverStatus-macOS-1.0.0.zip` with users.
+
+**User instructions (include in your release notes):**
+1. Extract the ZIP and move `EverStatus.app` anywhere (Applications, Desktop, etc.)
+2. Double-click `EverStatus.app`
+3. If macOS blocks it (Gatekeeper): right-click → Open → Open
+4. No Java installation required
+
+---
+
+## Manual jpackage Commands
+
+If you prefer to run jpackage directly without the build scripts:
+
+### Windows
+```
+jpackage --type app-image --input target --name EverStatus --main-jar activetrack-1.0.0.jar --main-class com.automations.everstatus.Application --dest dist --icon ES.ico --app-version 1.0.0 --java-options "-Djava.awt.headless=false"
+```
+
+### macOS
+```bash
+jpackage --type app-image --input target --name EverStatus --main-jar activetrack-1.0.0.jar --main-class com.automations.everstatus.Application --dest dist --icon ES.icns --app-version 1.0.0 --java-options "-Djava.awt.headless=false" --mac-package-name "com.automations.everstatus"
+```
+
+---
+
+## Output Structure
+
+### Windows (`dist\EverStatus-Windows-1.0.0.zip`)
+```
+EverStatus/
+├── EverStatus.exe          ← double-click to run
+├── runtime/                ← bundled JRE (no install needed)
+└── app/
+    └── activetrack-1.0.0.jar
+```
+
+### macOS (`dist/EverStatus-macOS-1.0.0.zip`)
+```
+EverStatus.app/             ← double-click to run
+└── Contents/
+    ├── MacOS/EverStatus
+    ├── runtime/            ← bundled JRE (no install needed)
+    └── app/
+        └── activetrack-1.0.0.jar
+```
+
+---
 
 ## Troubleshooting
 
-### "Java not found" error
-- Install Java 17 or higher from https://adoptium.net/
-- Ensure JAVA_HOME is set and Java is in PATH
+| Problem | Fix |
+|---|---|
+| `jpackage: command not found` | Install JDK 17+ (not just JRE). Verify with `jpackage --version`. |
+| macOS: "app is damaged or can't be opened" | Right-click → Open, or run `xattr -cr EverStatus.app` in Terminal |
+| macOS: Gatekeeper blocks unsigned app | Right-click → Open → Open (only needed once) |
+| App opens but GUI doesn't appear | Ensure you built with the correct platform profile (SWT is platform-native) |
+| Build fails with SWT error | Run the build on the target OS, not cross-compiled |
 
-### "Cannot find JAR file" error
-- Ensure `activetrack-1.0.0.jar` is in the same directory as the launcher script
-- Or place the JAR in a `target` subdirectory
+---
 
-### GUI doesn't appear
-- Check that you're not running with `java.awt.headless=true`
-- Ensure your system supports GUI applications
+## Releasing a New Version
 
-### Platform-specific SWT errors
-- Rebuild the JAR on the target platform to get the correct SWT library
-- Or manually activate the correct Maven profile during build
-
-## Version Updates
-
-When releasing a new version:
-
-1. Update version in `pom.xml`:
-   ```xml
-   <version>1.0.1</version>
-   ```
-
-2. Update JAR_NAME in launcher scripts:
-   - `runEverStatus.bat`: Update `SET JAR_NAME=activetrack-1.0.1.jar`
-   - `runEverStatus.sh`: Update `JAR_NAME="activetrack-1.0.1.jar"`
-
-3. Rebuild and redistribute
-
-## Best Practices
-
-1. **Always test on target platform** before distributing
-2. **Include README** with clear installation instructions
-3. **Sign your code** (Windows: Authenticode, macOS: Code signing)
-4. **Provide Java installation links** in your documentation
-5. **Consider bundling JRE** for truly standalone distribution (increases size significantly)
-6. **Keep launcher scripts** in version control alongside your code
+1. Update `<version>` in `pom.xml`
+2. Update `VERSION` in `build-distribution.bat` and `build-distribution.sh`
+3. Run the build script on each platform
+4. Distribute the new ZIPs

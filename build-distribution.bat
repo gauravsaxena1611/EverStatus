@@ -1,76 +1,69 @@
 @echo off
-REM EverStatus Distribution Build Script for Windows
-REM This script builds the application and creates a distribution package
+REM EverStatus Portable Build Script for Windows
+REM Creates a standalone portable app with bundled JRE - no Java install required on target machine
 
 SET VERSION=1.0.0
-SET DIST_DIR=dist\EverStatus-Windows-%VERSION%
 SET JAR_NAME=activetrack-%VERSION%.jar
 
 echo ========================================
-echo EverStatus Distribution Builder
+echo EverStatus Portable Build for Windows
 echo ========================================
 echo.
 
-REM Clean and build
-echo [1/4] Building application...
-call .\mvnw.cmd clean package
+REM Check jpackage is available
+where jpackage >nul 2>&1
+IF %ERRORLEVEL% NEQ 0 (
+    echo ERROR: jpackage not found. Install JDK 17+ and ensure it is in PATH.
+    pause
+    exit /b 1
+)
+
+REM Clean and build JAR
+echo [1/3] Building JAR...
+call .\mvnw.cmd clean package -DskipTests
 IF %ERRORLEVEL% NEQ 0 (
     echo Build failed!
     pause
     exit /b 1
 )
 
-REM Create distribution directory
+REM Create portable app-image with bundled JRE
 echo.
-echo [2/4] Creating distribution folder...
+echo [2/3] Creating portable app with jpackage (this may take a minute)...
 IF EXIST dist rmdir /s /q dist
-mkdir "%DIST_DIR%"
+mkdir dist
 
-REM Copy files
-echo.
-echo [3/4] Copying files...
-copy target\%JAR_NAME% "%DIST_DIR%\" >nul
-copy runEverStatus.bat "%DIST_DIR%\" >nul
-copy ES.ico "%DIST_DIR%\" >nul
-copy README.md "%DIST_DIR%\" >nul
+jpackage ^
+  --type app-image ^
+  --input target ^
+  --name EverStatus ^
+  --main-jar %JAR_NAME% ^
+  --main-class com.automations.everstatus.Application ^
+  --dest dist ^
+  --icon ES.ico ^
+  --app-version %VERSION% ^
+  --java-options "-Djava.awt.headless=false"
 
-REM Create README for users
-echo Creating user README...
-(
-echo EverStatus - User Activity Automation
-echo ======================================
-echo.
-echo INSTALLATION:
-echo 1. Ensure Java 17 or higher is installed
-echo    Download from: https://adoptium.net/
-echo.
-echo 2. Double-click 'runEverStatus.bat' to start the application
-echo.
-echo 3. Optionally, create a desktop shortcut to runEverStatus.bat
-echo.
-echo TROUBLESHOOTING:
-echo - If "Java not found" appears, install Java 17+ and add it to PATH
-echo - Ensure %JAR_NAME% is in the same folder as runEverStatus.bat
-echo.
-echo For more information, see README.md
-) > "%DIST_DIR%\INSTALL.txt"
+IF %ERRORLEVEL% NEQ 0 (
+    echo jpackage failed!
+    pause
+    exit /b 1
+)
 
-REM Create ZIP archive
+REM Zip the app-image folder
 echo.
-echo [4/4] Creating ZIP archive...
+echo [3/3] Creating ZIP archive...
 cd dist
-tar -a -c -f EverStatus-Windows-%VERSION%.zip EverStatus-Windows-%VERSION%
+tar -a -c -f EverStatus-Windows-%VERSION%.zip EverStatus
 cd ..
 
 echo.
 echo ========================================
-echo SUCCESS! Distribution package created:
+echo SUCCESS!
 echo   dist\EverStatus-Windows-%VERSION%.zip
 echo ========================================
 echo.
-echo Contents:
-dir "%DIST_DIR%" /b
-echo.
-echo You can now distribute the ZIP file to Windows users.
+echo Contents: unzip, then double-click EverStatus\EverStatus.exe
+echo No Java installation required on target machine.
 echo.
 pause

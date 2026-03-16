@@ -129,7 +129,7 @@ public class KeepActiveApp {
 
         // Main Card Panel
         Composite mainPanel = new Composite(contentArea, SWT.NONE);
-        mainPanel.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true));
+        mainPanel.setLayoutData(new GridData(SWT.FILL, SWT.TOP, true, false));
         mainPanel.setBackground(cardBgColor);
         GridLayout mainPanelLayout = new GridLayout(1, false);
         mainPanelLayout.marginWidth = 25;
@@ -313,11 +313,6 @@ public class KeepActiveApp {
         stopButton.setForeground(mutedTextColor);
         stopButton.setEnabled(false);
 
-        // Spacer to absorb extra vertical space (keeps controls at top)
-        Label cardSpacer = new Label(mainPanel, SWT.NONE);
-        cardSpacer.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true));
-        cardSpacer.setBackground(cardBgColor);
-
         // BOTTOM STATUS BAR - Sleek dark design
         Composite statusBar = new Composite(shell, SWT.NONE);
         GridData statusBarData = new GridData(SWT.FILL, SWT.CENTER, true, false);
@@ -403,13 +398,8 @@ public class KeepActiveApp {
             int currentDpi = display.getDPI().x;
             if (currentDpi != lastDpi[0]) {
                 lastDpi[0] = currentDpi;
-                // Re-layout all components when DPI changes
                 shell.layout(true, true);
-                // Recompute size
-                org.eclipse.swt.graphics.Point newSize = shell.computeSize(SWT.DEFAULT, SWT.DEFAULT);
-                int newWidth = Math.max(newSize.x, 400);
-                int newHeight = Math.max(newSize.y, 480);
-                shell.setSize(newWidth, newHeight);
+                shell.pack();
             }
         });
 

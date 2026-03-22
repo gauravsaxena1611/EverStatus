@@ -66,7 +66,7 @@ public class KeepActiveApp {
         }
 
         display = new Display();
-        shell = new Shell(display, SWT.CLOSE | SWT.TITLE | SWT.MIN);
+        shell = new Shell(display, SWT.CLOSE | SWT.TITLE | SWT.MIN | SWT.RESIZE);
         shell.setText("EverStatus");
 
         // Main layout
@@ -167,7 +167,7 @@ public class KeepActiveApp {
         for (String duration : durations) {
             durationCombo.add(duration);
         }
-        durationCombo.select(5); // Default to 2 hours 30 minutes
+        durationCombo.select(2); // Default to 1 hour
         GridData durationData = new GridData(SWT.FILL, SWT.CENTER, true, false);
         durationData.heightHint = 36;
         durationCombo.setLayoutData(durationData);
@@ -217,6 +217,7 @@ public class KeepActiveApp {
         hourSpinner.setFont(numberFont);
         hourSpinner.setBackground(inputBgColor);
         hourSpinner.setForeground(whiteColor);
+        hourSpinner.setEnabled(false);
         hourSpinner.addListener(SWT.Selection, event -> updatePreviewStatus());
 
         // Colon separator
@@ -242,6 +243,7 @@ public class KeepActiveApp {
         minuteSpinner.setFont(numberFont);
         minuteSpinner.setBackground(inputBgColor);
         minuteSpinner.setForeground(whiteColor);
+        minuteSpinner.setEnabled(false);
         minuteSpinner.addListener(SWT.Selection, event -> updatePreviewStatus());
 
         // Spacer between minute and AM/PM
@@ -265,11 +267,15 @@ public class KeepActiveApp {
         amPmCombo.setFont(amPmFont);
         amPmCombo.setBackground(inputBgColor);
         amPmCombo.setForeground(darkTextColor);
+        amPmCombo.setEnabled(false);
         amPmCombo.addListener(SWT.Selection, event -> updatePreviewStatus());
 
         // Add listener to update end time when duration is selected
         durationCombo.addListener(SWT.Selection, event -> {
             updateEndTimeFromDuration();
+            hourSpinner.setEnabled(true);
+            minuteSpinner.setEnabled(true);
+            amPmCombo.setEnabled(true);
             updatePreviewStatus();
         });
 
@@ -309,9 +315,9 @@ public class KeepActiveApp {
         stopButton.setFont(buttonFont);
         redColor = new Color(display, new RGB(243, 139, 168));  // Soft pink/red
         greyColor = new Color(display, new RGB(88, 91, 112));   // Muted dark grey
+        stopButton.setEnabled(false);
         stopButton.setBackground(greyColor);
         stopButton.setForeground(mutedTextColor);
-        stopButton.setEnabled(false);
 
         // BOTTOM STATUS BAR - Sleek dark design
         Composite statusBar = new Composite(shell, SWT.NONE);
@@ -321,24 +327,26 @@ public class KeepActiveApp {
         Color statusBarBg = new Color(display, new RGB(24, 24, 37)); // Very dark background
         statusBar.setBackground(statusBarBg);
         GridLayout statusBarLayout = new GridLayout(1, false);
-        statusBarLayout.marginHeight = 14;
-        statusBarLayout.marginWidth = 30;
-        statusBarLayout.verticalSpacing = 6;
+        statusBarLayout.marginHeight = 12;
+        statusBarLayout.marginLeft = 20;
+        statusBarLayout.marginRight = 20;
+        statusBarLayout.marginWidth = 0;
+        statusBarLayout.verticalSpacing = 4;
         statusBar.setLayout(statusBarLayout);
 
         // Status Label
-        statusLabel = new Label(statusBar, SWT.NONE);
-        statusLabel.setText("Ready to start");
-        statusLabel.setLayoutData(new GridData(SWT.CENTER, SWT.CENTER, true, false));
+        statusLabel = new Label(statusBar, SWT.WRAP);
+        statusLabel.setText("Select a duration to begin");
+        statusLabel.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
         statusLabel.setBackground(statusBarBg);
         statusLabel.setForeground(accentColorDark);
         Font statusFont = new Font(display, "Segoe UI", 11, SWT.BOLD);
         statusLabel.setFont(statusFont);
 
         // Time Remaining Label
-        timeRemainingLabel = new Label(statusBar, SWT.NONE);
+        timeRemainingLabel = new Label(statusBar, SWT.WRAP);
         timeRemainingLabel.setText("--");
-        timeRemainingLabel.setLayoutData(new GridData(SWT.CENTER, SWT.CENTER, true, false));
+        timeRemainingLabel.setLayoutData(new GridData(SWT.FILL, SWT.CENTER, true, false));
         timeRemainingLabel.setBackground(statusBarBg);
         timeRemainingLabel.setForeground(mutedTextColor);
         Font statusSubFont = new Font(display, "Segoe UI", 9, SWT.NORMAL);
@@ -349,6 +357,15 @@ public class KeepActiveApp {
 
         // Start button listener
         startButton.addListener(SWT.Selection, event -> {
+            // If the user never picked a duration (spinners still locked),
+            // derive the end time from the duration combo now.
+            if (!hourSpinner.isEnabled()) {
+                updateEndTimeFromDuration();
+                hourSpinner.setEnabled(true);
+                minuteSpinner.setEnabled(true);
+                amPmCombo.setEnabled(true);
+            }
+
             LocalDateTime now = LocalDateTime.now();
             int hour = hourSpinner.getSelection();
             int minute = minuteSpinner.getSelection();
@@ -376,6 +393,8 @@ public class KeepActiveApp {
             updateStatusDisplay();
 
             startButton.setEnabled(false);
+            startButton.setBackground(greyColor);
+            startButton.setForeground(mutedTextColor);
             stopButton.setEnabled(true);
             stopButton.setBackground(redColor);
             stopButton.setForeground(new Color(display, new RGB(27, 27, 27)));
@@ -385,6 +404,12 @@ public class KeepActiveApp {
             durationCombo.setEnabled(false);
 
             startTimer();
+
+            // Show sleep-prevention coverage in the time-remaining label
+            SleepPreventionService.Coverage cov = sleepPreventionService.getCoverage();
+            if (cov == SleepPreventionService.Coverage.PARTIAL) {
+                timeRemainingLabel.setText("Note: lid-close on battery may still sleep (OS restriction)");
+            }
         });
 
         // Stop button listener
@@ -392,14 +417,49 @@ public class KeepActiveApp {
             stopApplication();
         });
 
-        // Handle DPI changes when moving between monitors
-        final int[] lastDpi = {display.getDPI().x};
+        // Shared state for DPI change and resize clamping
+        final int   minWidth  = 400;
+        final int   minHeight = 480;
+        final int[] lastDpi   = {display.getDPI().x};
+        final int[] maxSize   = {(int)(minWidth * 1.5), (int)(minHeight * 1.5)};
+        final boolean[] reflowing = {false};
+
+        // Reflow helper — deferred so the OS finishes DPI scaling before we measure
+        Runnable reflow = () -> {
+            if (shell.isDisposed()) return;
+            reflowing[0] = true;
+            shell.layout(true, true);
+            shell.pack();
+            org.eclipse.swt.graphics.Point s = shell.getSize();
+            int w = Math.max(s.x, minWidth);
+            int h = Math.max(s.y, minHeight);
+            maxSize[0] = (int)(w * 1.5);
+            maxSize[1] = (int)(h * 1.5);
+            shell.setMinimumSize(w, h);
+            shell.setSize(w, h);
+            shell.layout(true, true);
+            reflowing[0] = false;
+        };
+
         shell.addListener(SWT.Move, event -> {
             int currentDpi = display.getDPI().x;
             if (currentDpi != lastDpi[0]) {
                 lastDpi[0] = currentDpi;
-                shell.layout(true, true);
-                shell.pack();
+                // 150 ms gives the OS time to finish DPI transition before we reflow
+                display.timerExec(150, reflow);
+            }
+        });
+
+        // Clamp user resize to max 150 % of the default (computed) size
+        shell.addListener(SWT.Resize, event -> {
+            if (reflowing[0]) return;
+            org.eclipse.swt.graphics.Point cur = shell.getSize();
+            int clampW = Math.min(cur.x, maxSize[0]);
+            int clampH = Math.min(cur.y, maxSize[1]);
+            if (clampW != cur.x || clampH != cur.y) {
+                reflowing[0] = true;
+                shell.setSize(clampW, clampH);
+                reflowing[0] = false;
             }
         });
 
@@ -437,12 +497,13 @@ public class KeepActiveApp {
 
         // Get the computed size and ensure minimum dimensions
         org.eclipse.swt.graphics.Point size = shell.getSize();
-        int minWidth = 400;
-        int minHeight = 480;
-        int finalWidth = Math.max(size.x, minWidth);
+        int finalWidth  = Math.max(size.x, minWidth);
         int finalHeight = Math.max(size.y, minHeight);
+        // Now that we know the real default size, set the 150 % cap
+        maxSize[0] = (int)(finalWidth  * 1.5);
+        maxSize[1] = (int)(finalHeight * 1.5);
+        shell.setMinimumSize(finalWidth, finalHeight);
         shell.setSize(finalWidth, finalHeight);
-        shell.setMinimumSize(minWidth, minHeight);
 
         // Center the shell on the primary monitor
         org.eclipse.swt.graphics.Rectangle displayBounds = display.getPrimaryMonitor().getBounds();
@@ -564,12 +625,16 @@ public class KeepActiveApp {
             LocalDateTime now = LocalDateTime.now();
             Duration remaining = Duration.between(now, endDateTime);
 
+            Duration elapsed = startTime != null ? Duration.between(startTime, Instant.now()) : Duration.ZERO;
+            long uptimeH = elapsed.toHours();
+            long uptimeM = elapsed.toMinutesPart();
+
             if (remaining.isNegative() || remaining.isZero()) {
-                timeRemainingLabel.setText("Time remaining: 0h 0m");
+                timeRemainingLabel.setText(String.format("Time remaining: 0h 0m  ·  Uptime: %dh %dm", uptimeH, uptimeM));
             } else {
                 long hours = remaining.toHours();
                 long minutes = remaining.toMinutesPart();
-                timeRemainingLabel.setText(String.format("Time remaining: %dh %dm", hours, minutes));
+                timeRemainingLabel.setText(String.format("Time remaining: %dh %dm  ·  Uptime: %dh %dm", hours, minutes, uptimeH, uptimeM));
             }
         }
     }
@@ -616,6 +681,8 @@ public class KeepActiveApp {
         timeRemainingLabel.setText("Session ended by user");
 
         startButton.setEnabled(true);
+        startButton.setBackground(greenColor);
+        startButton.setForeground(new Color(display, new RGB(27, 94, 32)));
         stopButton.setEnabled(false);
         stopButton.setBackground(greyColor);
         stopButton.setForeground(mutedTextColor);
@@ -645,6 +712,13 @@ public class KeepActiveApp {
 
         // Don't update preview if already running
         if (!shouldStop && endDateTime != null && startTime != null) {
+            return;
+        }
+
+        // If the time spinners haven't been unlocked yet, show a prompt
+        if (!hourSpinner.isEnabled()) {
+            statusLabel.setText("Select a duration to begin");
+            timeRemainingLabel.setText("--");
             return;
         }
 

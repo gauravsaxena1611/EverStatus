@@ -36,6 +36,23 @@ runEverStatus.bat
 - Uses `java.util.Timer` for scheduling, not Spring's `@Scheduled`
 - SWT's `display.asyncExec()` pattern for thread-safe UI updates from timer threads
 - 12-hour time format with AM/PM picker for end time selection
+- `SleepPreventionService` uses a two-layer strategy on Windows and `caffeinate` on macOS (see below)
+
+**Sleep Prevention Strategy (`SleepPreventionService.java`):**
+No admin rights required. Coverage depends on platform and power source:
+
+| Scenario | Coverage | Mechanism |
+|---|---|---|
+| Idle sleep — any platform, AC or battery | ✅ Full | caffeinate -i (macOS) / ES_SYSTEM_REQUIRED (Windows) |
+| Lid-close — macOS on AC | ✅ Full | caffeinate -s → IOPMAssertPreventSystemSleep (AC-only) |
+| Lid-close — Windows S3 (traditional sleep) | ✅ Full | ES_AWAYMODE_REQUIRED → Away Mode keeps system running |
+| Lid-close — Windows Modern Standby, battery | ⚠️ Partial | OS terminates all power requests on user-initiated sleep; no user-space fix |
+| Lid-close — macOS battery (10.14+) | ⚠️ Partial | macOS enforces this at kernel level; IOPMAssertPreventSystemSleep is AC-only even as root |
+
+- `SleepPreventionService.getCoverage()` returns `FULL` or `PARTIAL` after `enable()` is called
+- Windows sleep mode (Modern Standby vs S3) detected via `powercfg /a` (no admin)
+- macOS power source (AC vs battery) detected via `pmset -g batt` (no admin)
+- Coverage shown in the UI status bar when PARTIAL
 
 **Platform-Specific SWT:**
 Maven profiles auto-activate based on OS to include correct SWT native bindings:

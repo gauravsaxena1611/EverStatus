@@ -18,6 +18,14 @@ IF %ERRORLEVEL% NEQ 0 (
     exit /b 1
 )
 
+REM Determine icon option — skip gracefully if ES.ico is not present
+SET ICON_OPT=
+IF EXIST "ES.ico" (
+    SET ICON_OPT=--icon ES.ico
+) ELSE (
+    echo WARNING: ES.ico not found - jpackage will use the default Java icon
+)
+
 REM Clean and build JAR
 echo [1/3] Building JAR...
 call .\mvnw.cmd clean package -DskipTests
@@ -40,7 +48,7 @@ jpackage ^
   --main-jar %JAR_NAME% ^
   --main-class org.springframework.boot.loader.JarLauncher ^
   --dest dist ^
-  --icon ES.ico ^
+  %ICON_OPT% ^
   --app-version %VERSION% ^
   --java-options "-Djava.awt.headless=false"
 

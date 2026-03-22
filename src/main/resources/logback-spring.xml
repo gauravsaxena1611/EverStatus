@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+
+    <!--
+        ════════════════════════════════════════════════════════════════════════
+        EverStatus — Logback configuration
+        ════════════════════════════════════════════════════════════════════════
+
+        LOG DIRECTORY PRIORITY
+        ──────────────────────
+        1. System property  everstatus.log.dir   — set by Application.main() at
+           runtime to a path next to the distributed app (same folder the user
+           sees the .app / .exe).  Always set for distributed builds.
+        2. Fallback: ~/Library/Logs/EverStatus   — covers dev / IDE runs where
+           the system property is not set.
+
+        FILES WRITTEN
+        ─────────────
+        everstatus.log        — full DEBUG+ log, rolls at 10 MB, kept 30 days
+        everstatus-errors.log — ERROR level only, rolls at 5 MB, kept 30 days
+                                (small file users can easily e-mail for support)
+
+        All log lines include the full exception stack trace when an exception
+        is passed to the logger (%ex{full} ensures nothing is truncated).
+        ════════════════════════════════════════════════════════════════════════
+    -->
+
+    <!-- ── Log directory ────────────────────────────────────────────────────── -->
+    <!-- everstatus.log.dir is injected by Application.detectLogDirectory().     -->
+    <!-- If not set (IDE runs without the launcher), fall back to macOS standard -->
+    <!-- location.  The :- default syntax is supported by Logback substitution.  -->
+    <!-- everstatus.log.dir is always set by Application.detectLogDirectory() in production.     -->
+    <!-- The fallback (${user.home}/everstatus-logs) is only reached in edge-case dev runs      -->
+    <!-- where the launcher scripts are bypassed.  It uses user.home (not /Library/Logs) so it -->
+    <!-- is valid on Windows, macOS, and Linux without producing a platform-specific path.      -->
+    <property name="LOG_DIR"   value="${everstatus.log.dir:-${user.home}/everstatus-logs}"/>
+    <property name="MAX_SIZE"  value="10MB"/>
+    <property name="ERR_SIZE"  value="5MB"/>
+    <property name="HISTORY"   value="30"/>
+    <property name="TOTAL_CAP" value="150MB"/>
+
+    <!-- ── Shared encoder pattern ───────────────────────────────────────────── -->
+    <!-- %ex{full} guarantees complete stack traces even for deeply nested causes -->
+    <property name="PATTERN"
+              value="%d{yyyy-MM-dd HH:mm:ss.SSS} [%-22thread] %-5level %-40logger{40} - %msg%n%ex{full}"/>
+
+    <!-- ── Console ──────────────────────────────────────────────────────────── -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>${PATTERN}</pattern>
+        </encoder>
+    </appender>
+
+    <!-- ── Full log file (DEBUG+) ───────────────────────────────────────────── -->
+    <!--  Written next to the distributed app so users can find it easily.       -->
+    <!--  Rolls daily or at 10 MB, 30-day history, 150 MB total cap.             -->
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_DIR}/everstatus.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_DIR}/everstatus-%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+            <maxFileSize>${MAX_SIZE}</maxFileSize>
+            <maxHistory>${HISTORY}</maxHistory>
+            <totalSizeCap>${TOTAL_CAP}</totalSizeCap>
+        </rollingPolicy>
+        <encoder>
+            <pattern>${PATTERN}</pattern>
+        </encoder>
+    </appender>
+
+    <!-- ── Errors-only log file ─────────────────────────────────────────────── -->
+    <!--  Contains only ERROR and above — small, easy to e-mail for support.     -->
+    <!--  Rolls at 5 MB, same 30-day / 150 MB cap as the main log.               -->
+    <appender name="ERROR_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_DIR}/everstatus-errors.log</file>
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+            <level>ERROR</level>
+        </filter>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_DIR}/everstatus-errors-%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+            <maxFileSize>${ERR_SIZE}</maxFileSize>
+            <maxHistory>${HISTORY}</maxHistory>
+            <totalSizeCap>${TOTAL_CAP}</totalSizeCap>
+        </rollingPolicy>
+        <encoder>
+            <pattern>${PATTERN}</pattern>
+        </encoder>
+    </appender>
+
+    <!-- ── Suppress noisy third-party loggers ──────────────────────────────── -->
+    <logger name="sun.rmi"                          level="OFF"/>
+    <logger name="jdk.management"                   level="OFF"/>
+    <logger name="org.springframework.boot.context" level="WARN"/>
+    <logger name="org.springframework.context"      level="WARN"/>
+
+    <!-- ── Application loggers ─────────────────────────────────────────────── -->
+    <!-- DEBUG so every decision, scenario, and state change is visible in logs  -->
+    <logger name="com.automations.everstatus" level="DEBUG" additivity="false">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
+        <appender-ref ref="ERROR_FILE"/>
+    </logger>
+
+    <!-- ── Root (Spring Boot bootstrap, Hibernate, etc.) ───────────────────── -->
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
+        <appender-ref ref="ERROR_FILE"/>
+    </root>
+
+</configuration>

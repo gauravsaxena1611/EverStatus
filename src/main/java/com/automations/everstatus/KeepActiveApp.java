@@ -7,6 +7,10 @@ import org.eclipse.swt.graphics.Color;
 import org.eclipse.swt.graphics.RGB;
 import org.eclipse.swt.layout.GridLayout;
 import org.eclipse.swt.layout.GridData;
+import org.eclipse.swt.graphics.Point;
+import org.eclipse.swt.graphics.Rectangle;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -25,6 +29,8 @@ import java.util.TimerTask;
 @Service
 public class KeepActiveApp {
 
+    private static final Logger log = LoggerFactory.getLogger(KeepActiveApp.class);
+
     @Autowired
     private SleepPreventionService sleepPreventionService;
 
@@ -34,7 +40,8 @@ public class KeepActiveApp {
     private Robot robot;
     private LocalDateTime endDateTime;
     private Timer timer;
-    private volatile boolean shouldStop = false;
+    private volatile boolean shouldStop  = false;
+    private volatile int     keyPressCount = 0;   // total F13 presses in the current session
     private Button startButton;
     private Button stopButton;
     private Spinner hourSpinner;
@@ -48,24 +55,67 @@ public class KeepActiveApp {
     private Color greyColor;
     private Color mutedTextColor;
     private Color darkTextColor;
+    // Near-black foreground used on coloured buttons (stop, OK in password dialog).
+    // Kept as a field so it is created once and disposed with the shell — not leaked
+    // every time the user clicks Start/Stop or opens the password dialog.
+    private Color darkFgColor;
+    // Dark-green foreground for the Start button label.
+    private Color darkGreenFgColor;
 
     public void execute() {
+        log.info("execute() starting on thread='{}' os='{}' java='{}'",
+            Thread.currentThread().getName(),
+            System.getProperty("os.name"),
+            System.getProperty("java.version"));
 
         System.setProperty("java.awt.headless", "false");
 
         if (GraphicsEnvironment.isHeadless()) {
-            System.err.println("Running in headless mode.");
+            log.error("Running in headless mode — GUI will not be available");
         }
 
         try {
             robot = new Robot();
+            log.debug("java.awt.Robot initialised successfully");
         } catch (Exception e) {
-            System.err.println("Failed to initialize Robot for key presses. Error: " + e.getMessage());
-            e.printStackTrace();
+            log.error("Failed to initialise Robot for key simulation", e);
             return;
         }
 
+        log.debug("Creating SWT Display on thread='{}'", Thread.currentThread().getName());
         display = new Display();
+
+        // Wire the native SWT password dialog into the sleep prevention service.
+        // This must happen before START is pressed so the credential store has
+        // the callback ready before the background thread calls getOrPromptPassword().
+        // Using display.syncExec() inside the lambda is safe: the background
+        // (sleep-prevention-enable) thread blocks on syncExec while the main thread
+        // runs the dialog, then resumes with the result — no AppKit violations.
+        log.debug("Registering SWT password dialog provider with SleepPreventionService");
+        sleepPreventionService.setPasswordDialogProvider(message -> {
+            log.debug("Password dialog provider invoked on thread='{}' — posting to SWT main thread",
+                Thread.currentThread().getName());
+            String[] result = {null};
+            display.syncExec(() -> {
+                log.debug("SWT password dialog opening on thread='{}'", Thread.currentThread().getName());
+                result[0] = openPasswordDialog(message);
+                log.debug("SWT password dialog closed — entered={}", result[0] != null);
+            });
+            return result[0];
+        });
+
+        // Register coverage-change callback so the power monitor can update the status
+        // label whenever AC is plugged/unplugged or an external display is connected/removed.
+        // The callback is fired on the power-monitor background thread, so we use asyncExec.
+        log.debug("Registering coverage-changed callback with SleepPreventionService");
+        sleepPreventionService.setCoverageChangedCallback(() -> {
+            log.debug("Coverage-changed callback fired on thread='{}' — updating UI",
+                Thread.currentThread().getName());
+            if (!display.isDisposed()) {
+                display.asyncExec(this::updateCoverageLabel);
+            }
+        });
+
         shell = new Shell(display, SWT.CLOSE | SWT.TITLE | SWT.MIN | SWT.RESIZE);
         shell.setText("EverStatus");
 
@@ -302,9 +352,11 @@ public class KeepActiveApp {
         startButton.setLayoutData(startBtnData);
         Font buttonFont = new Font(display, "Segoe UI", 11, SWT.BOLD);
         startButton.setFont(buttonFont);
-        greenColor = new Color(display, new RGB(166, 227, 161));  // Soft green
+        greenColor       = new Color(display, new RGB(166, 227, 161));  // Soft green
+        darkGreenFgColor = new Color(display, new RGB(27, 94, 32));    // Dark green text on Start
+        darkFgColor      = new Color(display, new RGB(27, 27, 27));    // Near-black text on coloured buttons
         startButton.setBackground(greenColor);
-        startButton.setForeground(new Color(display, new RGB(27, 94, 32)));
+        startButton.setForeground(darkGreenFgColor);
 
         // Stop Button - Modern design
         stopButton = new Button(buttonsContainer, SWT.PUSH);
@@ -357,6 +409,7 @@ public class KeepActiveApp {
 
         // Start button listener
         startButton.addListener(SWT.Selection, event -> {
+            log.info("START button clicked on thread='{}'", Thread.currentThread().getName());
             // If the user never picked a duration (spinners still locked),
             // derive the end time from the duration combo now.
             if (!hourSpinner.isEnabled()) {
@@ -397,23 +450,25 @@ public class KeepActiveApp {
             startButton.setForeground(mutedTextColor);
             stopButton.setEnabled(true);
             stopButton.setBackground(redColor);
-            stopButton.setForeground(new Color(display, new RGB(27, 27, 27)));
+            stopButton.setForeground(darkFgColor);
             hourSpinner.setEnabled(false);
             minuteSpinner.setEnabled(false);
             amPmCombo.setEnabled(false);
             durationCombo.setEnabled(false);
 
+            keyPressCount = 0;  // reset counter for the new session
+            log.info("Session starting — endDateTime={}", endDateTime);
+            // Show a placeholder while sleep prevention initialises in the background.
+            // On macOS battery without an external display, enable() shows a password
+            // dialog — running it here would block the Cocoa main thread and cause
+            // macOS to kill the app as unresponsive.
+            timeRemainingLabel.setText("Configuring sleep prevention...");
             startTimer();
-
-            // Show sleep-prevention coverage in the time-remaining label
-            SleepPreventionService.Coverage cov = sleepPreventionService.getCoverage();
-            if (cov == SleepPreventionService.Coverage.PARTIAL) {
-                timeRemainingLabel.setText("Note: lid-close on battery may still sleep (OS restriction)");
-            }
         });
 
         // Stop button listener
         stopButton.addListener(SWT.Selection, event -> {
+            log.info("STOP button clicked on thread='{}'", Thread.currentThread().getName());
             stopApplication();
         });
 
@@ -490,6 +545,8 @@ public class KeepActiveApp {
             greenColor.dispose();
             redColor.dispose();
             greyColor.dispose();
+            darkFgColor.dispose();
+            darkGreenFgColor.dispose();
         });
 
         // Pack the shell to calculate preferred size based on content
@@ -511,6 +568,7 @@ public class KeepActiveApp {
         int y = displayBounds.y + (displayBounds.height - finalHeight) / 2;
         shell.setLocation(x, y);
 
+        log.info("Shell opened — entering SWT event loop");
         shell.open();
 
         while (!shell.isDisposed()) {
@@ -519,11 +577,145 @@ public class KeepActiveApp {
             }
         }
 
+        log.info("SWT event loop exited — disposing display");
         shouldStop = true;
         if (timer != null) {
             timer.cancel();
         }
         display.dispose();
+        log.info("execute() finished");
+    }
+
+    /**
+     * Shows a native SWT password input dialog on the current (main) thread.
+     * Must only be called from the SWT event thread (use display.syncExec from other threads).
+     *
+     * @param message plain-text message to display (use \n for line breaks)
+     * @return the password the user typed, or null if they clicked Cancel
+     */
+    private String openPasswordDialog(String message) {
+        log.debug("openPasswordDialog() on thread='{}'", Thread.currentThread().getName());
+
+        // Use app's dark theme colours so the dialog matches the main window
+        Color bgColor    = new Color(display, new RGB(30, 30, 46));
+        Color cardColor  = new Color(display, new RGB(49, 50, 68));
+        Color textColor  = new Color(display, new RGB(205, 214, 244));
+        Color inputColor = new Color(display, new RGB(69, 71, 90));
+        Color accentColor = new Color(display, new RGB(137, 180, 250));
+
+        Shell dialog = new Shell(shell, SWT.DIALOG_TRIM | SWT.APPLICATION_MODAL);
+        dialog.setText("EverStatus — Admin Access");
+        dialog.setBackground(bgColor);
+
+        GridLayout layout = new GridLayout(1, false);
+        layout.marginWidth = 24;
+        layout.marginHeight = 20;
+        layout.verticalSpacing = 14;
+        dialog.setLayout(layout);
+
+        // Message label — convert escaped \n sequences to real newlines
+        Label msgLabel = new Label(dialog, SWT.WRAP);
+        msgLabel.setText(message.replace("\\n", "\n"));
+        msgLabel.setBackground(bgColor);
+        msgLabel.setForeground(textColor);
+        Font msgFont = new Font(display, "Segoe UI", 11, SWT.NORMAL);
+        msgLabel.setFont(msgFont);
+        GridData msgData = new GridData(SWT.FILL, SWT.CENTER, true, false);
+        msgData.widthHint = 380;
+        msgLabel.setLayoutData(msgData);
+
+        // Password input field
+        Text passwordField = new Text(dialog, SWT.BORDER | SWT.PASSWORD | SWT.SINGLE);
+        passwordField.setBackground(inputColor);
+        passwordField.setForeground(textColor);
+        Font inputFont = new Font(display, "Segoe UI", 12, SWT.NORMAL);
+        passwordField.setFont(inputFont);
+        GridData inputData = new GridData(SWT.FILL, SWT.CENTER, true, false);
+        inputData.heightHint = 36;
+        passwordField.setLayoutData(inputData);
+
+        // Buttons row
+        Composite btnRow = new Composite(dialog, SWT.NONE);
+        btnRow.setBackground(bgColor);
+        btnRow.setLayoutData(new GridData(SWT.CENTER, SWT.CENTER, true, false));
+        GridLayout btnLayout = new GridLayout(2, true);
+        btnLayout.horizontalSpacing = 12;
+        btnRow.setLayout(btnLayout);
+
+        Color cancelBgColor = new Color(display, new RGB(88, 91, 112));
+        Button cancelBtn = new Button(btnRow, SWT.PUSH);
+        cancelBtn.setText("Cancel");
+        cancelBtn.setBackground(cancelBgColor);
+        cancelBtn.setForeground(textColor);
+        Font btnFont = new Font(display, "Segoe UI", 11, SWT.NORMAL);
+        cancelBtn.setFont(btnFont);
+        GridData btnData = new GridData(SWT.FILL, SWT.CENTER, true, false);
+        btnData.widthHint = 100;
+        btnData.heightHint = 36;
+        cancelBtn.setLayoutData(btnData);
+
+        Color okFgColor = new Color(display, new RGB(27, 27, 27));
+        Button okBtn = new Button(btnRow, SWT.PUSH);
+        okBtn.setText("OK");
+        okBtn.setBackground(accentColor);
+        okBtn.setForeground(okFgColor);
+        okBtn.setFont(btnFont);
+        okBtn.setLayoutData(btnData);
+        dialog.setDefaultButton(okBtn);
+
+        // Result holder — populated before dialog closes
+        String[] result = {null};
+
+        okBtn.addListener(SWT.Selection, e -> {
+            result[0] = passwordField.getText();
+            log.debug("OK clicked in password dialog");
+            dialog.close();
+        });
+        cancelBtn.addListener(SWT.Selection, e -> {
+            log.debug("Cancel clicked in password dialog");
+            dialog.close();
+        });
+        // Allow pressing Enter to confirm
+        passwordField.addListener(SWT.KeyDown, e -> {
+            if (e.keyCode == SWT.CR || e.keyCode == SWT.KEYPAD_CR) {
+                result[0] = passwordField.getText();
+                log.debug("Enter pressed in password dialog");
+                dialog.close();
+            }
+        });
+
+        dialog.pack();
+
+        // Centre over the main shell
+        Rectangle parentBounds = shell.getBounds();
+        Point size = dialog.getSize();
+        dialog.setLocation(
+            parentBounds.x + (parentBounds.width  - size.x) / 2,
+            parentBounds.y + (parentBounds.height - size.y) / 2
+        );
+
+        dialog.open();
+        passwordField.setFocus();
+
+        // Inner event loop — drives only this dialog until it is closed
+        while (!dialog.isDisposed()) {
+            if (!display.readAndDispatch()) display.sleep();
+        }
+
+        // Dispose local resources (all Colors created inside this method)
+        msgFont.dispose();
+        inputFont.dispose();
+        btnFont.dispose();
+        bgColor.dispose();
+        cardColor.dispose();
+        textColor.dispose();
+        inputColor.dispose();
+        accentColor.dispose();
+        cancelBgColor.dispose();
+        okFgColor.dispose();
+
+        log.debug("openPasswordDialog() returning — entered={}", result[0] != null);
+        return result[0];
     }
 
     private void updateEndTimeFromDuration() {
@@ -594,7 +786,33 @@ public class KeepActiveApp {
     }
 
     private void startTimer() {
-        sleepPreventionService.enable();
+        log.info("startTimer() — launching sleep-prevention-enable background thread");
+
+        // enable() must run on a background thread on macOS:
+        // when on battery with no external display it shows an osascript password dialog
+        // via p.waitFor(), which would block the Cocoa main thread and cause macOS to
+        // terminate the app as unresponsive.  The timer starts immediately; the coverage
+        // label is updated via asyncExec once enable() returns.
+        new Thread(() -> {
+            log.info("sleep-prevention-enable thread started (thread='{}')",
+                Thread.currentThread().getName());
+            try {
+                sleepPreventionService.enable();
+            } catch (Exception e) {
+                log.error("Unexpected exception in sleepPreventionService.enable()", e);
+            }
+
+            SleepPreventionService.Coverage cov = sleepPreventionService.getCoverage();
+            log.info("sleepPreventionService.enable() returned — coverage={}", cov);
+
+            if (!display.isDisposed()) {
+                display.asyncExec(this::updateCoverageLabel);
+            } else {
+                log.warn("Display disposed before coverage label could be updated");
+            }
+        }, "sleep-prevention-enable").start();
+
+        log.debug("Scheduling key-press timer (interval=60000ms, immediate first tick)");
         timer = new Timer();
         timer.scheduleAtFixedRate(new TimerTask() {
             @Override
@@ -608,6 +826,25 @@ public class KeepActiveApp {
                 simulateKeyPress();
             }
         }, 0, 60000); // Run every minute
+        log.info("Timer scheduled — first key press will fire immediately");
+    }
+
+    /**
+     * Updates the coverage/status label to reflect the current sleep-prevention coverage.
+     * Safe to call from any thread as long as the caller uses display.asyncExec() when
+     * not on the SWT main thread.  Must only be called while a session is active.
+     */
+    private void updateCoverageLabel() {
+        if (timeRemainingLabel == null || timeRemainingLabel.isDisposed()) return;
+        SleepPreventionService.Coverage cov = sleepPreventionService.getCoverage();
+        String text;
+        switch (cov) {
+            case FULL    -> text = "Full coverage — lid-close sleep blocked";
+            case PARTIAL -> text = "Note: lid-close on battery not blocked (admin prompt was skipped)";
+            default      -> text = "Sleep prevention active";
+        }
+        log.info("updateCoverageLabel() — coverage={} label='{}'", cov, text);
+        timeRemainingLabel.setText(text);
     }
 
     private void updateStatusDisplay() {
@@ -643,6 +880,14 @@ public class KeepActiveApp {
         if (endDateTime != null && !shouldStop) {
             LocalDateTime now = LocalDateTime.now(ZoneId.systemDefault());
             if (now.isAfter(endDateTime) || now.isEqual(endDateTime)) {
+                log.info("Session end time reached — endDateTime={} now={}", endDateTime, now);
+                if (startTime != null) {
+                    long uptimeSecs = java.time.Duration.between(startTime, java.time.Instant.now()).getSeconds();
+                    log.info("━━ SESSION SUMMARY ━━ uptime={}m {}s  keyPresses={}  coverage={}  reason=endTime",
+                        uptimeSecs / 60, uptimeSecs % 60,
+                        keyPressCount,
+                        sleepPreventionService.getCoverage());
+                }
                 shouldStop = true;
 
                 if (!display.isDisposed()) {
@@ -671,10 +916,22 @@ public class KeepActiveApp {
     }
 
     private void stopApplication() {
+        log.info("stopApplication() called on thread='{}'", Thread.currentThread().getName());
+
+        // Session summary — useful for confirming the app ran correctly
+        if (startTime != null) {
+            long uptimeSecs = java.time.Duration.between(startTime, java.time.Instant.now()).getSeconds();
+            log.info("━━ SESSION SUMMARY ━━ uptime={}m {}s  keyPresses={}  coverage={}",
+                uptimeSecs / 60, uptimeSecs % 60,
+                keyPressCount,
+                sleepPreventionService.getCoverage());
+        }
         shouldStop = true;
         if (timer != null) {
             timer.cancel();
+            log.debug("Timer cancelled");
         }
+        log.info("Calling sleepPreventionService.disable()...");
         sleepPreventionService.disable();
 
         statusLabel.setText("Stopped");
@@ -682,7 +939,7 @@ public class KeepActiveApp {
 
         startButton.setEnabled(true);
         startButton.setBackground(greenColor);
-        startButton.setForeground(new Color(display, new RGB(27, 94, 32)));
+        startButton.setForeground(darkGreenFgColor);
         stopButton.setEnabled(false);
         stopButton.setBackground(greyColor);
         stopButton.setForeground(mutedTextColor);
@@ -694,14 +951,18 @@ public class KeepActiveApp {
 
     private void simulateKeyPress() {
         if (shouldStop) {
+            log.debug("simulateKeyPress() skipped — shouldStop=true");
             return;
         }
         try {
-            // Use F15 key which is non-intrusive (doesn't affect most applications)
+            // F13 has no system mapping on macOS or Windows (F15 triggered brightness overlay)
             robot.keyPress(KeyEvent.VK_F13);
             robot.keyRelease(KeyEvent.VK_F13);
+            keyPressCount++;
+            log.debug("F13 key simulated — count={} thread='{}'", keyPressCount, Thread.currentThread().getName());
         } catch (Exception e) {
-            System.err.println("Error simulating key press: " + e.getMessage());
+            log.error("F13 key simulation FAILED (count={} thread='{}') — Robot may have lost focus or screen locked",
+                keyPressCount, Thread.currentThread().getName(), e);
         }
     }
 
@@ -762,7 +1023,7 @@ public class KeepActiveApp {
                 timeRemainingLabel.setText(String.format("Duration: %dh %dm", hours, minutes));
             }
         } catch (Exception e) {
-            // Ignore errors during preview update
+            log.debug("updatePreviewStatus() suppressed non-fatal exception: {}", e.getMessage());
         }
     }
 }

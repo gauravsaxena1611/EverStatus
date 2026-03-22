@@ -18,10 +18,14 @@ if ! command -v jpackage &> /dev/null; then
     exit 1
 fi
 
-# Determine icon: use .icns if available, fall back to .png
-ICON_FILE="ES.icns"
-if [ ! -f "$ICON_FILE" ]; then
-    ICON_FILE="ES.png"
+# Determine icon option: prefer .icns, fall back to .png, skip if neither exists
+ICON_OPT=""
+if [ -f "ES.icns" ]; then
+    ICON_OPT="--icon ES.icns"
+elif [ -f "ES.png" ]; then
+    ICON_OPT="--icon ES.png"
+else
+    echo "WARNING: No icon file found (ES.icns / ES.png) — jpackage will use the default Java icon"
 fi
 
 # Build JAR
@@ -45,9 +49,9 @@ jpackage \
   --main-jar "$JAR_NAME" \
   --main-class org.springframework.boot.loader.JarLauncher \
   --dest dist \
-  --icon "$ICON_FILE" \
+  $ICON_OPT \
   --app-version "$VERSION" \
-  --java-options "-Djava.awt.headless=false" \
+  --java-options "-XstartOnFirstThread -Djava.awt.headless=false" \
   --mac-package-name "com.automations.everstatus"
 
 if [ $? -ne 0 ]; then

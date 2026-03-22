@@ -5,6 +5,11 @@
 JAR_NAME="activetrack-1.0.0.jar"
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
+# Change to the script's directory so that Java's user.dir points to the same
+# folder as the JAR.  This ensures log files are written to a logs/ sub-folder
+# next to the JAR, not wherever the user's shell happens to be.
+cd "$SCRIPT_DIR"
+
 # Check if Java is installed
 if ! command -v java &> /dev/null; then
     echo "Error: Java is not installed or not in PATH"
@@ -37,7 +42,7 @@ echo "JAR Location: $JAR_PATH"
 echo ""
 
 # Run the application
-java -jar "$JAR_PATH"
+java -XstartOnFirstThread -jar "$JAR_PATH"
 
 EXIT_CODE=$?
 if [ $EXIT_CODE -ne 0 ]; then

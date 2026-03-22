@@ -2,6 +2,12 @@
 REM EverStatus Launcher for Windows
 REM This script can be distributed alongside the JAR file
 
+REM Change to the directory that contains this script so that Java's user.dir
+REM points to the same folder as the JAR.  This ensures the log files are
+REM written to a logs\ sub-folder next to the JAR, not wherever the user's
+REM command prompt happens to be.
+cd /d "%~dp0"
+
 SET JAR_NAME=activetrack-1.0.0.jar
 
 REM Check if Java is installed

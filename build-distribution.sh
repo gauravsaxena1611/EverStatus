@@ -43,7 +43,7 @@ jpackage \
   --input target \
   --name EverStatus \
   --main-jar "$JAR_NAME" \
-  --main-class com.automations.everstatus.Application \
+  --main-class org.springframework.boot.loader.JarLauncher \
   --dest dist \
   --icon "$ICON_FILE" \
   --app-version "$VERSION" \

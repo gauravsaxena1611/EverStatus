@@ -698,8 +698,8 @@ public class KeepActiveApp {
         }
         try {
             // Use F15 key which is non-intrusive (doesn't affect most applications)
-            robot.keyPress(KeyEvent.VK_F15);
-            robot.keyRelease(KeyEvent.VK_F15);
+            robot.keyPress(KeyEvent.VK_F13);
+            robot.keyRelease(KeyEvent.VK_F13);
         } catch (Exception e) {
             System.err.println("Error simulating key press: " + e.getMessage());
         }

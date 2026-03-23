@@ -9,13 +9,15 @@ import org.eclipse.swt.layout.GridLayout;
 import org.eclipse.swt.layout.GridData;
 import org.eclipse.swt.graphics.Point;
 import org.eclipse.swt.graphics.Rectangle;
+import org.eclipse.swt.widgets.Button;
+import org.eclipse.swt.widgets.Composite;
+import org.eclipse.swt.widgets.Label;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import java.awt.Robot;
-import java.awt.GraphicsEnvironment;
+import java.awt.*;
 import java.awt.event.KeyEvent;
 import java.time.Duration;
 import java.time.Instant;
@@ -956,12 +958,18 @@ public class KeepActiveApp {
         }
         try {
             // F13 has no system mapping on macOS or Windows (F15 triggered brightness overlay)
-            robot.keyPress(KeyEvent.VK_F13);
-            robot.keyRelease(KeyEvent.VK_F13);
+            // Changed to VK_SHIFT
+            robot.keyPress(KeyEvent.VK_SHIFT);
+            robot.keyRelease(KeyEvent.VK_SHIFT);
             keyPressCount++;
-            log.debug("F13 key simulated — count={} thread='{}'", keyPressCount, Thread.currentThread().getName());
+
+            java.awt.Point p = MouseInfo.getPointerInfo().getLocation();
+            robot.mouseMove(p.x+1, p.y);
+            robot.mouseMove(p.x, p.y);
+
+            log.debug("SHIFT key simulated — count={} thread='{}'", keyPressCount, Thread.currentThread().getName());
         } catch (Exception e) {
-            log.error("F13 key simulation FAILED (count={} thread='{}') — Robot may have lost focus or screen locked",
+            log.error("SHIFT key simulation FAILED (count={} thread='{}') — Robot may have lost focus or screen locked",
                 keyPressCount, Thread.currentThread().getName(), e);
         }
     }

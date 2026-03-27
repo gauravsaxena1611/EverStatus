@@ -77,7 +77,11 @@ public class Application implements CommandLineRunner {
 			rt.totalMemory() / 1_048_576,
 			rt.maxMemory()   / 1_048_576);
 		log.info("CPUs           : {}", rt.availableProcessors());
+		log.info("Timezone       : {} (offset={})",
+			java.util.TimeZone.getDefault().getID(),
+			java.time.ZonedDateTime.now().getOffset());
 		logDisplayInfo();
+		logTeamsLogPath();
 		log.info("──────────────────────────────────────────────────────────────");
 
 		SpringApplication.run(Application.class, args);
@@ -214,6 +218,49 @@ public class Application implements CommandLineRunner {
 	// ─────────────────────────────────────────────────────────────────────────────
 	//  Display diagnostics
 	// ─────────────────────────────────────────────────────────────────────────────
+
+	/**
+	 * Detects and logs the Microsoft Teams log directory so EverStatus and Teams
+	 * logs can be cross-referenced. Both log files use ISO 8601 timestamps with
+	 * the same timezone offset, making direct comparison possible.
+	 */
+	private static void logTeamsLogPath() {
+		String os = System.getProperty("os.name", "").toLowerCase();
+		String home = System.getProperty("user.home", "");
+		try {
+			java.util.List<Path> candidates = new java.util.ArrayList<>();
+			if (os.contains("mac")) {
+				// New Teams (2023+)
+				candidates.add(Paths.get(home, "Library", "Group Containers",
+					"UBF8T346G9.com.microsoft.teams", "Library", "Application Support", "Logs"));
+				// Teams Classic
+				candidates.add(Paths.get(home, "Library", "Application Support",
+					"Microsoft", "Teams", "logs.txt").getParent());
+			} else if (os.contains("win")) {
+				String appData  = System.getenv("APPDATA");
+				String localApp = System.getenv("LOCALAPPDATA");
+				// Teams Classic — logs.txt lives directly in this folder
+				if (appData != null)
+					candidates.add(Paths.get(appData, "Microsoft", "Teams"));
+				// New Teams (exe installer)
+				if (localApp != null)
+					candidates.add(Paths.get(localApp, "Microsoft", "Teams"));
+				// New Teams (Microsoft Store / MSIX package)
+				if (localApp != null)
+					candidates.add(Paths.get(localApp, "Packages",
+						"MSTeams_8wekyb3d8bbwe", "LocalCache", "Microsoft", "MSTeams", "Logs"));
+			}
+			for (Path candidate : candidates) {
+				if (Files.exists(candidate)) {
+					log.info("Teams logs     : {} (cross-reference with EverStatus timestamps)", candidate);
+					return;
+				}
+			}
+			log.debug("Teams logs     : not found at known paths — Teams may not be installed");
+		} catch (Exception e) {
+			log.debug("Teams logs     : could not detect path — {}", e.getMessage());
+		}
+	}
 
 	/** Logs the count and resolution of each connected screen. */
 	private static void logDisplayInfo() {

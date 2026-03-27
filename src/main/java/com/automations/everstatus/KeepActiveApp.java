@@ -812,6 +812,15 @@ public class KeepActiveApp {
             } else {
                 log.warn("Display disposed before coverage label could be updated");
             }
+
+            // Accessibility check — runs on background thread so Thread.sleep() works correctly.
+            if (System.getProperty("os.name", "").toLowerCase().contains("mac")
+                    && !shouldStop && !isAccessibilityGranted()) {
+                log.warn("Accessibility check failed — Robot events are being silently dropped; Teams will show Away");
+                if (!display.isDisposed()) {
+                    display.asyncExec(this::showAccessibilityWarningDialog);
+                }
+            }
         }, "sleep-prevention-enable").start();
 
         log.debug("Scheduling key-press timer (interval=60000ms, immediate first tick)");
@@ -957,20 +966,93 @@ public class KeepActiveApp {
             return;
         }
         try {
-            // F13 has no system mapping on macOS or Windows (F15 triggered brightness overlay)
-            // Changed to VK_SHIFT
-            robot.keyPress(KeyEvent.VK_SHIFT);
-            robot.keyRelease(KeyEvent.VK_SHIFT);
+            boolean isMac = System.getProperty("os.name", "").toLowerCase().contains("mac");
+
+            if (isMac) {
+                // Primary: Robot.keyPress() runs inside the jpackage native launcher process.
+                // The launcher IS the TCC-trusted process — same PID, same binary hash in the
+                // Accessibility database. Robot events go through CGEventPost which correctly
+                // resets CGEventSourceSecondsSinceLastEventType (the idle timer Teams reads).
+                robot.keyPress(KeyEvent.VK_F13);
+                robot.keyRelease(KeyEvent.VK_F13);
+
+                // 1-pixel mouse nudge: second independent user-activity signal.
+                java.awt.Point p = MouseInfo.getPointerInfo().getLocation();
+                robot.mouseMove(p.x + 1, p.y);
+                robot.mouseMove(p.x, p.y);
+
+                // Belt-and-suspenders: IOKit UserIsActive assertion for 90s.
+                // Covers lid-closed scenarios and apps that read IOKit assertions instead of CGEventSource.
+                new ProcessBuilder("caffeinate", "-u", "-t", "90").start();
+                log.debug("caffeinate -u -t 90 fired — UserIsActive assertion set for 90s");
+            } else {
+                // Windows / Linux: Robot works without extra permissions.
+                robot.keyPress(KeyEvent.VK_F13);
+                robot.keyRelease(KeyEvent.VK_F13);
+
+                java.awt.Point p = MouseInfo.getPointerInfo().getLocation();
+                robot.mouseMove(p.x + 1, p.y);
+                robot.mouseMove(p.x, p.y);
+            }
+
             keyPressCount++;
-
-            java.awt.Point p = MouseInfo.getPointerInfo().getLocation();
-            robot.mouseMove(p.x+1, p.y);
-            robot.mouseMove(p.x, p.y);
-
-            log.debug("SHIFT key simulated — count={} thread='{}'", keyPressCount, Thread.currentThread().getName());
+            log.debug("F13 key simulated — count={} thread='{}'", keyPressCount, Thread.currentThread().getName());
         } catch (Exception e) {
-            log.error("SHIFT key simulation FAILED (count={} thread='{}') — Robot may have lost focus or screen locked",
-                keyPressCount, Thread.currentThread().getName(), e);
+            log.error("F13 key simulation FAILED (count={} thread='{}') — {}",
+                keyPressCount, Thread.currentThread().getName(), e.getMessage());
+        }
+    }
+
+    /**
+     * Tests whether Robot can actually inject system input events on macOS.
+     * Runs a mouse move and checks if the cursor actually moved.
+     * Must be called from a background thread (not the SWT main thread)
+     * so Thread.sleep() allows the Cocoa event loop to process the move.
+     */
+    private boolean isAccessibilityGranted() {
+        try {
+            java.awt.Point before = MouseInfo.getPointerInfo().getLocation();
+            robot.keyPress(KeyEvent.VK_F13);
+            robot.keyRelease(KeyEvent.VK_F13);
+            robot.mouseMove(before.x + 5, before.y + 5);
+            Thread.sleep(120);
+            java.awt.Point after = MouseInfo.getPointerInfo().getLocation();
+            robot.mouseMove(before.x, before.y); // restore position
+            boolean granted = (Math.abs(after.x - before.x) > 2 || Math.abs(after.y - before.y) > 2);
+            log.debug("isAccessibilityGranted() — Robot mouse check: before=({},{}) after=({},{}) → granted={}",
+                    before.x, before.y, after.x, after.y, granted);
+            return granted;
+        } catch (Exception e) {
+            log.debug("isAccessibilityGranted() — exception: {} → assuming granted", e.getMessage());
+            return true;
+        }
+    }
+
+    /**
+     * Shows a dialog explaining that Accessibility permission needs to be
+     * re-added after a new build (binary hash changes = stale TCC entry).
+     */
+    private void showAccessibilityWarningDialog() {
+        MessageBox mb = new MessageBox(shell, SWT.ICON_WARNING | SWT.OK);
+        mb.setText("Accessibility Permission Needed");
+        mb.setMessage(
+            "EverStatus cannot inject keystrokes — your Teams/Slack status will show as Away.\n\n" +
+            "This usually happens after a fresh build because macOS links the Accessibility\n" +
+            "permission to the app binary. A new build = a new binary = stale permission.\n\n" +
+            "Fix (takes 30 seconds):\n" +
+            "  1. System Settings → Privacy & Security → Accessibility  (opening now)\n" +
+            "  2. Find EverStatus → click the  −  button to remove it\n" +
+            "  3. Click  +  and add EverStatus again from the dist folder\n" +
+            "  4. Restart EverStatus\n\n" +
+            "You only need to do this once per build.");
+        mb.open();
+        try {
+            new ProcessBuilder("open",
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+                .start();
+            log.info("Opened System Settings → Accessibility for user to re-add permission");
+        } catch (Exception e) {
+            log.warn("Could not open System Settings automatically: {}", e.getMessage());
         }
     }
 
